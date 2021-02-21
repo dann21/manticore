@@ -110,7 +110,7 @@ fn from_json(
                 input, stdwrite,
             )
         }
-        _ => panic!("Unsupported message type"),
+        _ => panic!("Unsupported cmd_type: {:?}", cmd_type),
     }
 }
 
@@ -143,7 +143,7 @@ macro_rules! read_wire_and_operate {
                         &mut read_buf_slice,
                         &arena,
                     )
-                    .expect("failed to read response");
+                    .expect("failed to read request");
                 let body = $body;
                 body(message)
             }
@@ -157,7 +157,7 @@ macro_rules! read_wire_and_operate {
                 let body = $body;
                 body(message)
             }
-            _ => panic!("unsupported response type {:?}", header.command),
+            _ => panic!("Unsupported command: {:?}", header.command),
         }
     };
 }
@@ -352,7 +352,7 @@ fn main() {
                     .expect("failed to serialize PFM");
                 }
                 None => {
-                    panic!("unknown manifest type: 0x{:04x}", manifest_type)
+                    panic!("Unsupported manifest type: 0x{:04x}", manifest_type)
                 }
             }
         }
