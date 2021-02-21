@@ -24,6 +24,9 @@ zerocopy = "0.3.0"
 version = "2.33.1"
 optional = true
 
+# NOTE: [dann 2021-02-19]: Not using this yet!
+# spiutils = { path = "cribbed-from-tock-on-titan/shared-lib/spiutils", default_features = false }
+
 [dependencies.libfuzzer-sys]
 version = "0.3"
 optional = true
@@ -69,6 +72,18 @@ tool = [
 [[bin]]
 name = "manticore-tool"
 path = "src/main.rs"
+required-features = ["std", "tool"]
+
+# Toy tcp-server front-end for manticore-toolish stuff.
+[[bin]]
+name = "manticore-server"
+path = "server/main.rs"
+required-features = ["std", "tool"]
+
+# Toy tcp-client for manticore-toolish stuff.
+[[bin]]
+name = "manticore-client"
+path = "client/main.rs"
 required-features = ["std", "tool"]
 
 [lib]

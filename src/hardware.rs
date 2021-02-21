@@ -123,8 +123,8 @@ impl Flash for [u8] {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod fake {
+#[allow(missing_docs)]
+pub mod fake {
     use core::convert::TryInto;
     use core::time::Duration;
 
