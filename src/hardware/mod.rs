@@ -46,8 +46,8 @@ pub trait Reset {
     fn uptime(&self) -> Duration;
 }
 
-#[cfg(test)]
-pub(crate) mod fake {
+#[allow(missing_docs)]
+pub mod fake {
     use core::convert::TryInto;
     use core::time::Duration;
     use std::collections::HashMap;
