@@ -2,75 +2,21 @@ use std::io::prelude::*;
 use std::net::TcpListener;
 use std::net::TcpStream;
 
-//use core::time::Duration;
+use core::time::Duration;
 
-
-//use manticore::crypto::ring;
-//use manticore::hardware::fake;
-//use manticore::protocol::capabilities::BusRole;
-//use manticore::protocol::capabilities::Networking;
-//use manticore::protocol::capabilities::RotMode;
-//use manticore::protocol::capabilities::Timeouts;
-//use manticore::protocol::device_id;
-use manticore::protocol::firmware_version;
+use manticore::crypto::ring;
+use manticore::hardware::fake;
+use manticore::protocol::capabilities::BusRole;
+use manticore::protocol::capabilities::Networking;
+use manticore::protocol::capabilities::RotMode;
+use manticore::protocol::capabilities::Timeouts;
+use manticore::protocol::device_id;
 use manticore::protocol::wire::FromWire;
-use manticore::protocol::CommandType;
-use manticore::protocol::Header;
-//use manticore::server::pa_rot::Options;
-//use manticore::server::pa_rot::PaRot;
-
-//use manticore::server::handler::prelude::*;
-
-////
-
-/// Macro to deserialize wire format from an input stream and then run
-/// an operation on the deserialized message.
-///
-/// This macro is a temporary workaround some Serde limiatations.
-///
-/// Arguments:
-/// * `input`: Identifier for input stream
-/// * `body`: A "generic" closure to run with the results of the parse.
-#[allow(unused_macros)]
-macro_rules! read_wire_and_operate {
-    ($input:ident, $body:expr) => {
-        let mut input = $input;
-        let mut read_buf = Vec::new();
-        input
-            .read_to_end(&mut read_buf)
-            .expect("couldn't read from file");
-
-        let mut arena = vec![0u8; 1024];
-        let arena = BumpArena::new(&mut arena);
-
-        let mut read_buf_slice = read_buf.as_slice();
-        let header = Header::from_wire(&mut read_buf_slice, &arena)
-            .expect("failed to read header");
-        match (header.is_request, header.command) {
-            (true, CommandType::FirmwareVersion) => {
-                let message =
-                    firmware_version::FirmwareVersionRequest::from_wire(
-                        &mut read_buf_slice,
-                        &arena,
-                    )
-                    .expect("failed to read response");
-                let body = $body;
-                body(message)
-            }
-            (false, CommandType::FirmwareVersion) => {
-                let message =
-                    firmware_version::FirmwareVersionResponse::from_wire(
-                        &mut read_buf_slice,
-                        &arena,
-                    )
-                    .expect("failed to read response");
-                let body = $body;
-                body(message)
-            }
-            _ => panic!("unsupported response type {:?}", header.command),
-        }
-    };
-}
+use manticore::protocol::spi_payload::SpiHeader;
+use manticore::protocol::spi_payload::SPI_HEADER_LEN;
+use manticore::protocol::spi_payload::SpiContentType;
+use manticore::server::pa_rot::Options;
+use manticore::server::pa_rot::PaRot;
 
 ////
 
@@ -84,55 +30,73 @@ fn main() {
 
 fn handle_connection(mut stream: TcpStream) {
 
-    // read_wire_and_operate!(stream, |msg| {
-    //     println!("msg={:?}", msg)
-    // });
+    // Dummy up a server.
+    const DEVICE_ID: device_id::DeviceIdentifier =
+        device_id::DeviceIdentifier {
+            vendor_id: 1,
+            device_id: 2,
+            subsys_vendor_id: 3,
+            subsys_id: 4,
+        };
+    const NETWORKING: Networking = Networking {
+        max_message_size: 1024,
+        max_packet_size: 256,
+        mode: RotMode::Platform,
+        roles: BusRole::HOST,
+    };
+    const TIMEOUTS: Timeouts = Timeouts {
+        regular: Duration::from_millis(30),
+        crypto: Duration::from_millis(200),
+    };
+    let identity = fake::Identity::new(b"test version", b"random bits");
+    let reset = fake::Reset::new(0, Duration::from_millis(1));
+    let rsa = ring::rsa::Builder::new();
+    let _server = PaRot::new(Options {
+        identity: &identity,
+        reset: &reset,
+        rsa: &rsa,
+        device_id: DEVICE_ID,
+        networking: NETWORKING,
+        timeouts: TIMEOUTS,
+    });
 
-    // const DEVICE_ID: device_id::DeviceIdentifier =
-    //     device_id::DeviceIdentifier {
-    //         vendor_id: 1,
-    //         device_id: 2,
-    //         subsys_vendor_id: 3,
-    //         subsys_id: 4,
-    //     };
-    // const NETWORKING: Networking = Networking {
-    //     max_message_size: 1024,
-    //     max_packet_size: 256,
-    //     mode: RotMode::Platform,
-    //     roles: BusRole::HOST,
-    // };
-    // const TIMEOUTS: Timeouts = Timeouts {
-    //     regular: Duration::from_millis(30),
-    //     crypto: Duration::from_millis(200),
-    // };
-    // let identity = fake::Identity::new(b"test version", b"random bits");
-    // let reset = fake::Reset::new(0, Duration::from_millis(1));
-    // let rsa = ring::rsa::Builder::new();
-    // let mut server = PaRot::new(Options {
-    //     identity: &identity,
-    //     reset: &reset,
-    //     rsa: &rsa,
-    //     device_id: DEVICE_ID,
-    //     networking: NETWORKING,
-    //     timeouts: TIMEOUTS,
-    // });
+    // Grab the SPI header bytes off the wire.
+    let mut spi_hdr_buf: Vec<u8> = vec![0; SPI_HEADER_LEN];
+    stream.read(&mut spi_hdr_buf).unwrap();
+    println!("spi_hdr_buf={:?}", spi_hdr_buf);
+    let mut spi_hdr_buf = spi_hdr_buf.as_slice();
+    let spi_hdr = SpiHeader::from_wire(&mut spi_hdr_buf).unwrap();
 
-    let mut read_buf = [0; 1024];
-    stream.read(&mut read_buf).unwrap();
+    match spi_hdr.content_type {
+        SpiContentType::Manticore => {
+            let mut data_buf : Vec<u8> = vec![0; spi_hdr.content_len as usize];
+            stream.read(&mut data_buf).unwrap();
+            println!("data_buf={:?}", data_buf);
 
-    // FIXME [dann 2021-02-21]: 5 is a magic number!!!
-    let header = Header::from_wire(&mut read_buf[..5])
-        .expect("failed to read header");
-    println!("header={:?}", header);
+            // Eventually call process_request()...
+            ()
+        }
+        _ => ()
+    }
 
-    assert_eq!(header.command, CommandType::FirmwareVersion);
-    assert_eq!(header.is_request, true);
+    // let mut arena = [0; 64];
+    // //let mut arena = BumpArena::new(&mut arena);
+    // let arena = BumpArena::new(&mut arena);
 
-    let request = firmware_version::FirmwareVersionRequest::from_wire(&mut read_buf[5..])
-        .expect("failed to read response");
-    println!("request={:?}", request);
+    // // FIXME [dann 2021-02-21]: 5 is a magic number!!!
+    // let header = Header::from_wire(&mut read_buf[..5], &arena)
+    //     .expect("failed to read header");
+    // println!("header={:?}", header);
 
-    assert_eq!(request.index, 0);
+    // assert_eq!(header.command, CommandType::FirmwareVersion);
+    // assert_eq!(header.is_request, true);
+
+    // let request = firmware_version::FirmwareVersionRequest::from_wire(
+    //     &mut read_buf[5..], &arena
+    // ).expect("failed to read response");
+    // println!("request={:?}", request);
+
+    // assert_eq!(request.index, 0);
 
     // let get = b"GET / HTTP/1.1\r\n";
 
